@@ -400,8 +400,7 @@ def apply_linear_function_to_input(
     linear_function: Float[t.Tensor, "d_output d_input"],
     input_to_function: Float[t.Tensor, "batch d_input"],
 ) -> Float[t.Tensor, "batch d_output"]:
-    # TODO: Implement this
-    raise NotImplementedError()
+    return einops.einsum(linear_function, input_to_function, 'd_output d_input, batch d_input -> batch d_output')
 
 # 3x2 matrix, i.e. f: R^2 -> R^3
 test_linear_function = t.tensor(
@@ -448,6 +447,10 @@ print(f"{example_input.grad=}")
 
 # Putting this together, we can create a three layer neural net consisting of
 # six tensors, instead of needing to create each neuron individually.
+
+# START HERE
+from dataclasses import dataclass
+from jaxtyping import Float
 
 @dataclass
 class ThreeLayerNeuralNet:
@@ -504,11 +507,10 @@ def initialize_new_three_layer_net() -> ThreeLayerNeuralNet:
             # 784-dimensional input and 300-dimensional output
             layer_0 = t.zeros((2000, 784), requires_grad=True).uniform_(-initial_bound, initial_bound),
             layer_0_bias = t.zeros(2000, requires_grad=True).uniform_(-initial_bound, initial_bound),
-            # TODO: Finish implementing 
-            layer_1 = None,
-            layer_1_bias = None,
-            layer_2 = None,
-            layer_2_bias = None,
+            layer_1 = t.zeros((400, 2000), requires_grad=True).uniform_(-initial_bound, initial_bound),
+            layer_1_bias = t.zeros(400, requires_grad=True).uniform_(-initial_bound, initial_bound),
+            layer_2 = t.zeros((10,400), requires_grad=True).uniform_(-initial_bound, initial_bound),
+            layer_2_bias = t.zeros(10, requires_grad=True).uniform_(-initial_bound, initial_bound),
         )
         return neural_net
 
@@ -529,8 +531,7 @@ assert_with_expect(
 # We'll need a version of ReLU that works with tensors of arbitrary size. Let's implement that:
 
 def tensor_relu(input_tensor: t.Tensor) -> t.Tensor:
-    # TODO: Implement this
-    raise NotImplementedError()
+    return t.maximum(input_tensor, t.tensor(0))
 
 test_input = t.tensor([
     [1.0, 2.0, -3.0],
@@ -545,6 +546,7 @@ assert_tensors_within_epsilon(
 )
 
 
+# %%
 # Now let's define a version of `forward` that works with tensors. Again, our
 # input tensor is a whole batch of inputs, not just a single input!
 #
@@ -556,10 +558,10 @@ assert_tensors_within_epsilon(
 # more details.
 
 def forward(x: Float[t.Tensor, "batch d_input"], neural_net: ThreeLayerNeuralNet) -> Float[t.Tensor, "batch d_output"]:
-    # TODO: Fill in the first two layers of this!
-    raise NotImplementedError()
-
-# %%
+    layer_0_out = tensor_relu(apply_linear_function_to_input(neural_net.layer_0, x) + neural_net.layer_0_bias)
+    layer_1_out = tensor_relu(apply_linear_function_to_input(neural_net.layer_1, layer_0_out) + neural_net.layer_1_bias)
+    layer_2_out = apply_linear_function_to_input(neural_net.layer_2, layer_1_out) + neural_net.layer_2_bias
+    return t.softmax(layer_2_out, dim=-1)
 
 example_output = forward(neural_net=new_neural_net, x=t.ones((10, 784)))
 
@@ -605,8 +607,10 @@ print(f"{new_neural_net.layer_0.grad=}")
 def zero_all_gradients(neural_net: ThreeLayerNeuralNet) -> None:
     neural_net.layer_0.grad = None
     neural_net.layer_0_bias.grad = None
-    # TODO: Finish implementing this for all the other layers in our neural net
-    raise NotImplementedError()
+    neural_net.layer_1.grad = None
+    neural_net.layer_1_bias.grad = None
+    neural_net.layer_2.grad = None
+    neural_net.layer_2_bias.grad = None
 
 
 # Now let's implement the simplest loss function out there, the mean squared
@@ -618,8 +622,7 @@ def loss_function(
     expected_outputs: Float[t.Tensor, "batch d_output"],
     actual_outputs: Float[t.Tensor, "batch d_output"],
 ) -> Float[t.Tensor, ""]:
-    # TODO: Implement this
-    raise NotImplementedError()
+    return ((expected_outputs - actual_outputs) ** 2).mean()
 
 
 # Now we can use derivatives/gradients to iteratively nudge an input tensor
@@ -631,8 +634,7 @@ def nudge_tensor_towards_minimum(x: t.Tensor, learning_rate: float) -> None:
     # the only thing that should affect x's gradients is the loss function, not
     # our adjustment to x.
     with t.no_grad():
-        # TODO: Implement this
-        raise NotImplementedError()
+        x -= x.grad * learning_rate
 
 # Finally we put all this together in a function that performs one iteration of
 # tuning the weights of neural nets in training.
@@ -659,8 +661,16 @@ def tune_weights_once(
     learning_rate: float,
 ) -> None:
     zero_all_gradients(neural_net)
-    # TODO: Fill in the rest
-    raise NotImplementedError()
+    outputs = forward(inputs, neural_net)
+    loss = loss_function(expected_outputs, outputs)
+    loss.backward()
+    nudge_tensor_towards_minimum(neural_net.layer_0, learning_rate)
+    nudge_tensor_towards_minimum(neural_net.layer_0_bias, learning_rate)
+    nudge_tensor_towards_minimum(neural_net.layer_1, learning_rate)
+    nudge_tensor_towards_minimum(neural_net.layer_1_bias, learning_rate)
+    nudge_tensor_towards_minimum(neural_net.layer_2, learning_rate)
+    nudge_tensor_towards_minimum(neural_net.layer_2_bias, learning_rate)
+
 
 # %%
 
@@ -709,8 +719,9 @@ plt.imshow(img.squeeze())
 # Doing this translation is called a "one-hot encoding." Let's implement it!
 
 def one_hot_encoding(i: int, num_classes: int) -> t.Tensor:
-    # TODO: Implement this!
-    raise NotImplementedError()
+    encoding = t.zeros(num_classes)
+    encoding[i] = 1
+    return encoding
 
 
 assert_tensors_within_epsilon(
@@ -856,3 +867,5 @@ model_all_guesses = model(img_outside_of_training_dataset)
 model_guess_highest_prob = model(img_outside_of_training_dataset).argmax()
 
 print(f"Model guessed this was: {model_guess_highest_prob}")
+
+# %%
