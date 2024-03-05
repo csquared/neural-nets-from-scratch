@@ -1,5 +1,5 @@
 # %%
-
+import torch as t
 # Some nice preliminary functions for testing.
 
 def assert_with_expect(expected, actual):
@@ -53,8 +53,10 @@ def relu(x: float) -> float:
     ReLU (rectified linear unit), one of the simplest non-linear activation
     functions out there.
     """
-    # TODO: Fill this in!
-    raise NotImplementedError()
+    if x > 0.0:
+        return x
+    else:
+        return 0.0
 
 assert relu(5.0)
 
@@ -83,8 +85,11 @@ class Neuron:
         Compute what the output of a single neuron should look like.
         """
         assert len(inputs) == len(self.weights)
-        # TODO: Fill this in!
-        raise NotImplementedError()
+        result = 0.0
+        for weight, input in zip(self.weights, inputs):
+            result += (weight * input)
+        result += self.bias
+        return relu(result)
 
 test_neuron = Neuron(weights=[1, 2], bias=0.5)
 assert_with_expect(actual=test_neuron.compute_output([2, 3]), expected=8.5)
@@ -99,8 +104,7 @@ assert_with_expect(actual=test_neuron.compute_output([2, -2]), expected=0)
 def forward_pass_single_layer(input: list[float], layer: list[Neuron]) -> list[float]:
     for neuron in layer:
         assert len(neuron.weights) == len(input)
-    # TODO: Fill this in!
-    raise NotImplementedError()
+    return [neuron.compute_output(input) for neuron in layer]
 
 test_layer = [
     Neuron(weights=[0.1, 0.2], bias=0.3),
@@ -226,13 +230,13 @@ c = a ** 2 + b ** 2
 # Let's move on to a multivariate case.  Use PyTorch to calculate what dc/da is
 # and what dc/db are.
 
-# TODO: Fill in the Nones!
 # Remember to first populate the gradients before calling .grad!
-dc_da = None
+c.backward()
+dc_da = a.grad
 
 assert_with_expect(expected=t.tensor(10.0), actual=dc_da)
 
-dc_db = None
+dc_db = b.grad
 
 assert_with_expect(expected=t.tensor(6.0), actual=dc_db)
 
@@ -250,11 +254,13 @@ c = (a_and_b ** 2).sum()
 
 # Use PyTorch to calculate again what dc/da and what dc/db are
 
-# TODO: Fill in the Nones!
 # Remember to first populate the gradients before calling .grad!
-dc_da = None
+c.backward()
+dc_da = a.grad
+print(dc_da)
 
-dc_db = None
+dc_db = b.grad
+print(dc_db)
 
 # %%
 
@@ -372,8 +378,9 @@ def x_squared_plus_y_squared_plus_5_thousand_times() -> tuple[np.ndarray, np.nda
     on a tensor.
     """
     points = generate_one_thousand_points()
-    # TODO: Implement this
-    raise NotImplementedError()
+    out = (points ** 2).sum()
+    out.backward() 
+    return (points, points.grad.detach().numpy())
 
 print(f"{x_squared_plus_y_squared_plus_5_thousand_times()=}")
 
@@ -399,8 +406,8 @@ def apply_linear_function_to_input(
     linear_function: Float[t.Tensor, "d_output d_input"],
     input_to_function: Float[t.Tensor, "batch d_input"],
 ) -> Float[t.Tensor, "batch d_output"]:
-    # TODO: Implement this
-    raise NotImplementedError()
+#    return e.einsum(input_to_function, linear_function, 'b d_in, d_out d_in -> b d_out')
+    return einops.einsum(linear_function, input_to_function, 'd_out d_in, b d_in -> b d_out')
 
 # 3x2 matrix, i.e. f: R^2 -> R^3
 test_linear_function = t.tensor(
@@ -503,11 +510,10 @@ def initialize_new_three_layer_net() -> ThreeLayerNeuralNet:
             # 784-dimensional input and 300-dimensional output
             layer_0 = t.zeros((2000, 784), requires_grad=True).uniform_(-initial_bound, initial_bound),
             layer_0_bias = t.zeros(2000, requires_grad=True).uniform_(-initial_bound, initial_bound),
-            # TODO: Finish implementing 
-            layer_1 = None,
-            layer_1_bias = None,
-            layer_2 = None,
-            layer_2_bias = None,
+            layer_1 = t.zeros((400,2000), requires_grad=True).uniform_(-initial_bound, initial_bound),
+            layer_1_bias = t.zeros(400, requires_grad=True).uniform_(-initial_bound, initial_bound),
+            layer_2 = t.zeros(10,400, requires_grad=True).uniform_(-initial_bound, initial_bound),
+            layer_2_bias = t.zeros(10, requires_grad=True).uniform_(-initial_bound, initial_bound),
         )
         return neural_net
 
@@ -528,8 +534,7 @@ assert_with_expect(
 # We'll need a version of ReLU that works with tensors of arbitrary size. Let's implement that:
 
 def tensor_relu(input_tensor: t.Tensor) -> t.Tensor:
-    # TODO: Implement this
-    raise NotImplementedError()
+    return t.maximum(input_tensor, t.zeros(input_tensor.shape))
 
 test_input = t.tensor([
     [1.0, 2.0, -3.0],
@@ -555,9 +560,8 @@ assert_tensors_within_epsilon(
 # more details.
 
 def forward(x: Float[t.Tensor, "batch d_input"], neural_net: ThreeLayerNeuralNet) -> Float[t.Tensor, "batch d_output"]:
-    # TODO: Fill in the first two layers of this!
-    after_layer_0 = None
-    after_layer_1 = None
+    after_layer_0 = tensor_relu(apply_linear_function_to_input(neural_net.layer_0,x) + neural_net.layer_0_bias)
+    after_layer_1 = tensor_relu(apply_linear_function_to_input(neural_net.layer_1,after_layer_0) + neural_net.layer_1_bias)
     # Instead of doing a ReLU at the very end, we're going to use softmax
     after_layer_2 = t.nn.functional.softmax(apply_linear_function_to_input(neural_net.layer_2, after_layer_1) + neural_net.layer_2_bias, dim=-1)
     return after_layer_2
@@ -608,8 +612,10 @@ print(f"{new_neural_net.layer_0.grad=}")
 def zero_all_gradients(neural_net: ThreeLayerNeuralNet) -> None:
     neural_net.layer_0.grad = None
     neural_net.layer_0_bias.grad = None
-    # TODO: Finish implementing this for all the other layers in our neural net
-    raise NotImplementedError()
+    neural_net.layer_1.grad = None
+    neural_net.layer_1_bias.grad = None
+    neural_net.layer_2.grad = None
+    neural_net.layer_2_bias.grad = None
 
 
 # Now let's implement the simplest loss function out there, the mean squared
@@ -621,9 +627,7 @@ def loss_function(
     expected_outputs: Float[t.Tensor, "batch d_output"],
     actual_outputs: Float[t.Tensor, "batch d_output"],
 ) -> Float[t.Tensor, ""]:
-    # TODO: Implement this
-    raise NotImplementedError()
-
+    return ((expected_outputs - actual_outputs) ** 2).mean()
 
 # Now we can use derivatives/gradients to iteratively nudge an input tensor
 # towards a minimum with respect to a loss!
@@ -634,8 +638,7 @@ def nudge_tensor_towards_minimum(x: t.Tensor, learning_rate: float) -> None:
     # the only thing that should affect x's gradients is the loss function, not
     # our adjustment to x.
     with t.no_grad():
-        # TODO: Implement this
-        raise NotImplementedError()
+        x -= (x.grad * learning_rate)
 
 # Finally we put all this together in a function that performs one iteration of
 # tuning the weights of neural nets in training.
@@ -662,8 +665,15 @@ def tune_weights_once(
     learning_rate: float,
 ) -> None:
     zero_all_gradients(neural_net)
-    # TODO: Fill in the rest
-    raise NotImplementedError()
+    actual_outputs = forward(inputs, neural_net)
+    loss = loss_function(expected_outputs, actual_outputs) 
+    loss.backward()
+    nudge_tensor_towards_minimum(neural_net.layer_0, learning_rate)
+    nudge_tensor_towards_minimum(neural_net.layer_0_bias, learning_rate)
+    nudge_tensor_towards_minimum(neural_net.layer_1, learning_rate)
+    nudge_tensor_towards_minimum(neural_net.layer_1_bias, learning_rate)
+    nudge_tensor_towards_minimum(neural_net.layer_2, learning_rate)
+    nudge_tensor_towards_minimum(neural_net.layer_2_bias, learning_rate)
 
 # %%
 
@@ -685,6 +695,7 @@ def train(
 
 # %%
 import matplotlib.pyplot as plt
+import einops
 from torchvision.datasets import MNIST
 from torchvision.transforms import ToTensor
 
@@ -712,8 +723,9 @@ plt.imshow(img.squeeze())
 # Doing this translation is called a "one-hot encoding." Let's implement it!
 
 def one_hot_encoding(i: int, num_classes: int) -> t.Tensor:
-    # TODO: Implement this!
-    raise NotImplementedError()
+    out = t.zeros(num_classes)
+    out[i] = 1
+    return out
 
 
 assert_tensors_within_epsilon(
@@ -773,6 +785,7 @@ print(f"Expected label: {label}")
 plt.imshow(einops.rearrange(img_outside_of_training_dataset, '(h w) -> h w', h=28))
 
 model_all_guesses = forward(neural_net=new_neural_net, x=img_outside_of_training_dataset.unsqueeze(dim=0))
+print(model_all_guesses)
 model_guess_highest_prob = forward(neural_net=new_neural_net, x=img_outside_of_training_dataset.unsqueeze(dim=0)).argmax()
 
 print(f"Model guessed this was: {model_guess_highest_prob}")
@@ -797,6 +810,7 @@ print(f"Expected label: {label}")
 plt.imshow(einops.rearrange(img_outside_of_training_dataset, '(h w) -> h w', h=28))
 
 model_all_guesses = forward(neural_net=new_neural_net, x=img_outside_of_training_dataset.unsqueeze(dim=0))
+print(model_all_guesses)
 model_guess_highest_prob = forward(neural_net=new_neural_net, x=img_outside_of_training_dataset.unsqueeze(dim=0)).argmax()
 
 print(f"Model guessed this was: {model_guess_highest_prob}")
@@ -859,3 +873,5 @@ model_all_guesses = model(img_outside_of_training_dataset)
 model_guess_highest_prob = model(img_outside_of_training_dataset).argmax()
 
 print(f"Model guessed this was: {model_guess_highest_prob}")
+
+# %%
